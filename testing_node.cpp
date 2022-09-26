@@ -41,6 +41,20 @@ class DisplayInfo {
     numpy_tutorial::Frequency frequency;
 
     std::chrono::time_point<std::chrono::high_resolution_clock> t1;
+    std::chrono::time_point<std::chrono::high_resolution_clock> t2;
+
+    std::vector<std::chrono::duration<double>> predictionTimeArr;
+
+    bool isFirstLoop = true;
+
+    bool isEfficientNetModel = false;
+
+    //const char* inputOpTensorName = "serving_default_input_1"; //input tensor name for EfficientNetModel
+    const char* inputOpTensorName = "serving_default_conv2d_input"; //input tensor name for FoodModel
+
+    const char* outputOpTensorName = "StatefulPartitionedCall";
+
+    // isEfficientNetModel, inputOpTensorName, loadGraph
 
 
   public:
@@ -48,6 +62,7 @@ class DisplayInfo {
     this->setClasses();
     this->t1 = std::chrono::high_resolution_clock::now();
     this->loadGraph("/home/mendez/PycharmProjects/pythonProject1/saved_model/model_1");
+    //this->loadGraph("/home/mendez/EfficientNetB7_model");
     this->getInOutOperations();
     this->frequency.count = 0;
     pub = nh->advertise<numpy_tutorial::Frequency>("/shows_message", 10);
@@ -70,12 +85,18 @@ class DisplayInfo {
   
 
   void callback_trigger(const rospy_tutorials::Floats& msg) {
-    auto t2 = std::chrono::high_resolution_clock::now();
+    if (this->isFirstLoop) {
+      this->t2 = std::chrono::high_resolution_clock::now();
+      this->isFirstLoop = false;
+    }
+    
+    auto t3 = std::chrono::high_resolution_clock::now();
+
     this->createInputTensor(msg);
     this->runSession();
     this->frequency.count++;
     pub.publish(this->frequency);
-    auto t3 = std::chrono::high_resolution_clock::now();
+    auto t4 = std::chrono::high_resolution_clock::now();
 
     /*
     std::cout << "DIF T2-T1: "
@@ -86,12 +107,22 @@ class DisplayInfo {
     << std::chrono::duration_cast<std::chrono::milliseconds>(t3-t2).count()
     << " milliseconds\n";
 */
-    std::chrono::duration<double> elapsed_1 = t2 - t1;
-    std::chrono::duration<double> elapsed_2 = t3 - t2;
+    std::chrono::duration<double> elapsed_1 = this->t2 - this->t1;
+    std::chrono::duration<double> elapsed_2 = t4 - t3;
+
+    this->predictionTimeArr.push_back(elapsed_2);
 
 
-    std::cout << " Elapsed Time T2 - T1: " << elapsed_1.count() << std::endl;
-    std::cout << " Elapsed Time T3 - T2 " << elapsed_2.count() << std::endl;
+    std::cout << " PREDICTION TIME ARR: [";
+    for(auto & element : predictionTimeArr) {
+      std::cout << element.count() << ", ";
+    }
+    std::cout << "]" << std::endl;
+    std::cout << " LOAD MODEL TIME: " << elapsed_1.count() << std::endl;
+    std::cout << " PREDICTION TIME: " << elapsed_2.count() << std::endl;
+    std::cout << "---------------------------------------" << std::endl;
+
+
   }
 
   void loadGraph(const char* graph_path)
@@ -121,7 +152,7 @@ class DisplayInfo {
     }
 
   void getInOutOperations(){
-    this->m_output_op = { TF_GraphOperationByName(this->m_graph, "StatefulPartitionedCall"), 0};
+    this->m_output_op = { TF_GraphOperationByName(this->m_graph, this->outputOpTensorName), 0};
     if (this->m_output_op.oper == NULL) {
       printf("ERROR: Failed TF_GraphOperationByName StatefulPartitionedCall_0\n");
     }
@@ -129,7 +160,7 @@ class DisplayInfo {
        printf("TF_GraphOperationByName StatefulPartitionedCall_0 is OK\n");
       }
 
-    this->m_input_op = { TF_GraphOperationByName(this->m_graph, "serving_default_conv2d_input"), 0};
+    this->m_input_op = { TF_GraphOperationByName(this->m_graph, this->inputOpTensorName), 0};
     if (this->m_input_op.oper == NULL) {
       printf("ERROR: Failed TF_GraphOperationByName serving_default_conv2d_input_0\n");
     }
@@ -199,21 +230,31 @@ class DisplayInfo {
     int max_index;
     float max_value = 0.0;
     float total_sum = 0;
+    int size = classNames.size();
 
-    for (int x = 0; x < classNames.size(); x++){
-        
-        if (data[x] > max_value){
-          max_index = x;
-          max_value = data[x];
-        }
-        total_sum += data[x];
+    if (this->isEfficientNetModel) {
+      size = 1000;
+    }
+    
+    for (int x = 0; x < size; x++){
+      
+      if (data[x] > max_value){
+        max_index = x;
+        max_value = data[x];
       }
+      total_sum += data[x];
+    }
+    
+    
 
     //CHECKSUM
     if (total_sum < 0.99) {
       return nullptr;
     }
+    if (this->isEfficientNetModel) {
 
+      return this->classNames[6];
+    }
     return this->classNames[max_index];
   }
 /*
